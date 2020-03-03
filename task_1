@@ -1,0 +1,41 @@
+-- Вывод 1) суммы всех поступлений (положительных) с 1.07.2017 по 30.09.2019 и
+-- 2) количества всех транзакций за тот же период, совершенных пользователями,
+-- которые зарегистрировались в тот же месяц, что и осуществили транзакцию.
+-- Необходимо осуществить одним запросом и результат сгруппировать по месяцам
+
+select to_char(Orders.finished_at, 'YYYY-MM') as month,
+	sum(case when Orders.amount_usd > 0 then Orders.amount_usd end) as positive_transactions,
+	sum(case when to_char(Users.registered_at, 'YYYY-MM') = to_char(Orders.finished_at, 'YYYY-MM')
+	then 1 else 0 end) as new_users_orders
+from Users
+right join Orders on (Users.id = Orders.user_id)
+where Orders.finished_at >= '2019.07.01' and Orders.finished_at <= '2019.09.30'
+group by to_char(Orders.finished_at, 'YYYY-MM');
+
+
+-- Вывод количества пользователей не из России, зарегистрировавшихся в 2019 году,
+-- доход (ввод минус вывод) с каждого из которых за все время составил больше 1000$
+
+select count(*) as n_users
+from
+	(select Users.id, extract(year from Users.registered_at) as year_registered
+	from Users
+	left join Countries on (Users.country_id = Countries.id)
+	right join Orders on (Users.id = Orders.user_id)
+	where extract(year from Users.registered_at)=2019
+		and not Countries.full_name = 'Russia'
+	group by Users.id, year_registered
+	having sum(Orders.amount_usd)>1000) as df;
+
+
+-- Вывести User_id и долю от дохода с каждого пользователя по отношению ко всему доходу, полученному со страны его регистрации
+
+select df.id as user_id, df.full_name as country,
+	round(sum(amount_usd)/ sum(distinct sum_by_country), 3) as country_share
+from( select Users.id, Orders.amount_usd, Countries.full_name,
+		sum(Orders.amount_usd) OVER (PARTITION BY Countries.full_name) as sum_by_country
+	from Users
+	left join Countries on (Users.country_id = Countries.id)
+	right join Orders on (Users.id = Orders.user_id)) as df
+group by df.id, df.full_name;
+
